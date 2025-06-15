@@ -7,7 +7,7 @@ import { ArrowDown, ChevronDown, Info, X } from "lucide-react";
 import type { JSX } from "react/jsx-runtime";
 import { erc20Abi } from "viem";
 
-const MORALIS_API_KEY = process.env.NEXT_PUBLIC_MORALIS_API_KEY;
+const MORALIS_API_KEY = process.env.MORALIS_API_KEY;
 
 const MOCK_TOKEN_PRICES: { [key: string]: number } = {
   USDC: 1.0,
