@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAccount, useReadContract, useWriteContract, useSwitchChain } from "wagmi";
+import { useAccount, useReadContract, useWriteContract, useSwitchChain, useEstimateGas } from "wagmi";
 import Moralis from "moralis";
 import { ArrowDown, ChevronDown, Info, X } from "lucide-react";
 import type { JSX } from "react/jsx-runtime";
-import { erc20Abi } from "viem";
+import { erc20Abi, formatEther, encodeFunctionData } from "viem";
 
-const MORALIS_API_KEY = process.env.MORALIS_API_KEY;
+const MORALIS_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImI3Yjk2Y2M4LTcxYTQtNDAyYi1hZTNmLTYzZjU0NDlmZDk2YyIsIm9yZ0lkIjoiNDUzOTQ5IiwidXNlcklkIjoiNDY3MDUxIiwidHlwZUlkIjoiYjQ3Y2IwODYtNWEwNy00MzZjLWE4OWUtZDQwYTU5NjE1NTBkIiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NDk5MTcyMTUsImV4cCI6NDkwNTY3NzIxNX0.BkhhOqwKCOi2Eul58baCHMKyQ97vWd4bmTTdRSFvlSc";
 
 const MOCK_TOKEN_PRICES: { [key: string]: number } = {
   USDC: 1.0,
@@ -19,17 +19,27 @@ const MOCK_TOKEN_PRICES: { [key: string]: number } = {
 const TOKEN_LIST = [
   { symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`, decimals: 6 },
   { symbol: "DAI", address: "0x50c5725949A6F0c72E6C4a641F24049A917EF0Cb" as `0x${string}`, decimals: 18 },
-  { symbol: "WETH", address: "0x4200000000000000000000000000000000000006" as `0x${string}`, decimals: 18 },
+  // { symbol: "WETH", address: "0x4200000000000000000000000000000000000006" as `0x${string}`, decimals: 18 },
   { symbol: "ETH", address: "0x0000000000000000000000000000000000000000" as `0x${string}`, decimals: 18 },
 ];
 
-const DUST_AGGREGATOR_ADDRESS = "0x4FC57BaB376146209E67a529f99ECb51B70b423f" as `0x${string}`;
+const DUST_AGGREGATOR_ADDRESS = "0x4B09cb9a3930df1aD6C92D49dcA395F9714a773d" as `0x${string}`;
 const DUST_AGGREGATOR_ABI = [
   {
     inputs: [{ name: "token", type: "address" }, { name: "amount", type: "uint256" }],
     name: "depositDust",
     outputs: [],
     stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "tokens", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    name: "depositDustBatch",
+    outputs: [],
+    stateMutability: "payable",
     type: "function",
   },
   {
@@ -47,6 +57,16 @@ const DUST_AGGREGATOR_ABI = [
       { indexed: false, name: "amount", type: "uint256" },
     ],
     name: "DustDeposited",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "user", type: "address" },
+      { indexed: false, name: "tokens", type: "address[]" },
+      { indexed: false, name: "amounts", type: "uint256[]" },
+    ],
+    name: "DustBatchDeposited",
     type: "event",
   },
   {
@@ -122,27 +142,115 @@ const thresholdOptions = [
   { label: "MAX", value: "MAX" },
 ];
 
-// type ModalType = "lend" | "borrow" | "stake" | null;
+function useEstimateConsolidationGas(
+  selectedFromTokens: Token[],
+  selectedToToken: Token,
+  account: `0x${string}` | undefined,
+  isConnected: boolean,
+) {
+  const [estimatedGas, setEstimatedGas] = useState<string>("0");
+
+  useEffect(() => {
+    if (!isConnected || !account || selectedFromTokens.length === 0) {
+      setEstimatedGas("0");
+      return;
+    }
+
+    const estimateGas = async () => {
+      try {
+        let totalGas = BigInt(0);
+        const tokens = selectedFromTokens.map((token) => token.address);
+        const amounts = selectedFromTokens.map((token) =>
+          BigInt(Number(token.balance) * 10 ** token.decimals),
+        );
+        const ethAmount = selectedFromTokens
+          .filter((token) => token.address === "0x0000000000000000000000000000000000000000")
+          .reduce((sum, token) => sum + Number(token.balance) * 10 ** token.decimals, 0);
+
+        // Check allowances for ERC-20 tokens
+        for (const token of selectedFromTokens.filter(
+          (t) => t.address !== "0x0000000000000000000000000000000000000000",
+        )) {
+          const amount = BigInt(Number(token.balance) * 10 ** token.decimals);
+          const { data: allowance } = useReadContract({
+            address: token.address,
+            abi: erc20Abi,
+            functionName: "allowance",
+            args: [account, DUST_AGGREGATOR_ADDRESS],
+          });
+          if (!allowance || allowance < amount) {
+            const calldata = encodeFunctionData({
+              abi: erc20Abi,
+              functionName: "approve",
+              args: [DUST_AGGREGATOR_ADDRESS, amount],
+            });
+            const { data: gas } = useEstimateGas({
+              to: token.address,
+              data: calldata,
+              account,
+            });
+            if (gas) totalGas += gas;
+          }
+        }
+
+        // Estimate gas for batch deposit
+        const depositCalldata = encodeFunctionData({
+          abi: DUST_AGGREGATOR_ABI,
+          functionName: "depositDustBatch",
+          args: [tokens, amounts],
+        });
+        const { data: depositGas } = useEstimateGas({
+          to: DUST_AGGREGATOR_ADDRESS,
+          data: depositCalldata,
+          value: BigInt(ethAmount),
+          account,
+        });
+        if (depositGas) totalGas += depositGas;
+
+        // Estimate gas for swap
+        const swapCalldata = encodeFunctionData({
+          abi: DUST_AGGREGATOR_ABI,
+          functionName: "swapDust",
+          args: [tokens, selectedToToken.address],
+        });
+        const { data: swapGas } = useEstimateGas({
+          to: DUST_AGGREGATOR_ADDRESS,
+          data: swapCalldata,
+          account,
+        });
+        if (swapGas) totalGas += swapGas;
+
+        setEstimatedGas(formatEther(totalGas * BigInt(1 * 10 ** 9))); 
+      } catch (error) {
+        console.error("Gas estimation failed:", error);
+        setEstimatedGas("0");
+      }
+    };
+
+    estimateGas();
+  }, [selectedFromTokens, selectedToToken, account, isConnected]);
+
+  return estimatedGas;
+}
 
 const CryptoSwap: React.FC = () => {
   const { address: account, chainId, isConnected } = useAccount();
   const { switchChain } = useSwitchChain();
   const { writeContractAsync } = useWriteContract();
   const [selectedFromTokens, setSelectedFromTokens] = useState<Token[]>([]);
-  const [selectedToToken, setSelectedToToken] = useState<Token>(availableTokens[3]); 
+  const [selectedToToken, setSelectedToToken] = useState<Token>(availableTokens[3]);
   const [fromAmount, setFromAmount] = useState("0");
   const [toAmount, setToAmount] = useState("0");
   const [isFromDropdownOpen, setIsFromDropdownOpen] = useState(false);
   const [isToDropdownOpen, setIsToDropdownOpen] = useState(false);
   const [showConfirmSend, setShowConfirmSend] = useState(false);
-  // const [activeModal, setActiveModal] = useState<ModalType>(null);
-  // const [lendAmount, setLendAmount] = useState("");
-  // const [borrowAmount, setBorrowAmount] = useState("");
-  // const [stakeAmount, setStakeAmount] = useState("");
   const [selectedThreshold, setSelectedThreshold] = useState(thresholdOptions[0]);
   const [isThresholdDropdownOpen, setIsThresholdDropdownOpen] = useState(false);
   const [tokens, setTokens] = useState<Token[]>(availableTokens);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Use custom hook for gas estimation
+  const estimatedGas = useEstimateConsolidationGas(selectedFromTokens, selectedToToken, account, isConnected);
 
   useEffect(() => {
     const initializeMoralis = async () => {
@@ -156,7 +264,7 @@ const CryptoSwap: React.FC = () => {
   useEffect(() => {
     if (isConnected && account && chainId) {
       if (chainId !== 8453 && chainId !== 84532) {
-        switchChain({ chainId: 84532 }); 
+        switchChain({ chainId: 84532 });
       } else {
         fetchDustAssets(account);
       }
@@ -166,7 +274,7 @@ const CryptoSwap: React.FC = () => {
   const fetchDustAssets = async (address: string) => {
     setIsLoading(true);
     try {
-      const moralisChain = chainId === 8453 ? "0x2105" : "0x14a34"; 
+      const moralisChain = chainId === 8453 ? "0x2105" : "0x14a34";
 
       const tokenResponse = await Moralis.EvmApi.token.getWalletTokenBalances({
         chain: moralisChain,
@@ -222,42 +330,45 @@ const CryptoSwap: React.FC = () => {
     setIsLoading(false);
   };
 
-  const depositDust = async (tokenAddress: `0x${string}`, amount: string, decimals: number) => {
-    if (!isConnected || !account) return;
+  const checkAllowance = async (tokenAddress: `0x${string}`, amount: bigint) => {
+    if (tokenAddress === "0x0000000000000000000000000000000000000000") return true;
+    const { data: allowance } = useReadContract({
+      address: tokenAddress,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [account!, DUST_AGGREGATOR_ADDRESS],
+    });
+    return allowance && allowance >= amount;
+  };
+
+  const depositDustBatch = async () => {
+    if (!isConnected || !account || selectedFromTokens.length === 0) return;
     try {
-      if (tokenAddress === "0x0000000000000000000000000000000000000000") {
-        await writeContractAsync({
-          address: DUST_AGGREGATOR_ADDRESS,
-          abi: DUST_AGGREGATOR_ABI,
-          functionName: "depositDust",
-          args: [tokenAddress, BigInt(Number(amount) * 10 ** decimals)],
-          value: BigInt(Number(amount) * 10 ** decimals),
-        });
-      } else {
-        await writeContractAsync({
-          address: tokenAddress,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [DUST_AGGREGATOR_ADDRESS, BigInt(Number(amount) * 10 ** decimals)],
-        });
-        await writeContractAsync({
-          address: DUST_AGGREGATOR_ADDRESS,
-          abi: DUST_AGGREGATOR_ABI,
-          functionName: "depositDust",
-          args: [tokenAddress, BigInt(Number(amount) * 10 ** decimals)],
-        });
-      }
-      alert(`Deposited ${amount} of ${tokens.find((t) => t.address === tokenAddress)?.symbol} successfully!`);
+      const tokens = selectedFromTokens.map((token) => token.address);
+      const amounts = selectedFromTokens.map((token) =>
+        BigInt(Number(token.balance) * 10 ** token.decimals),
+      );
+      const ethAmount = selectedFromTokens
+        .filter((token) => token.address === "0x0000000000000000000000000000000000000000")
+        .reduce((sum, token) => sum + Number(token.balance) * 10 ** token.decimals, 0);
+
+      await writeContractAsync({
+        address: DUST_AGGREGATOR_ADDRESS,
+        abi: DUST_AGGREGATOR_ABI,
+        functionName: "depositDustBatch",
+        args: [tokens, amounts],
+        value: BigInt(ethAmount),
+      });
+      alert(`Deposited ${selectedFromTokens.length} tokens successfully!`);
       fetchDustAssets(account!);
     } catch (error) {
-      console.error("Deposit failed:", error);
-      alert("Deposit failed.");
+      console.error("Batch deposit failed:", error);
+      throw error;
     }
   };
 
   const swapDust = async () => {
     if (!isConnected || !account || selectedFromTokens.length === 0) return;
-    setIsLoading(true);
     try {
       const tokenAddresses = selectedFromTokens.map((token) => token.address);
       const tokenOut = selectedToToken.address;
@@ -274,9 +385,8 @@ const CryptoSwap: React.FC = () => {
       fetchDustAssets(account!);
     } catch (error) {
       console.error("Swap failed:", error);
-      alert("Swap failed.");
+      throw error;
     }
-    setIsLoading(false);
   };
 
   const sendToWallet = async () => {
@@ -334,24 +444,62 @@ const CryptoSwap: React.FC = () => {
     if (!isConnected || !account) return;
     setIsLoading(true);
     try {
-      for (const token of selectedFromTokens.filter((t) => t.address !== "0x0000000000000000000000000000000000000000")) {
-        await writeContractAsync({
-          address: token.address,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [DUST_AGGREGATOR_ADDRESS, BigInt(Number(token.balance) * 10 ** token.decimals)],
-        });
+      // Calculate ETH amount to deposit
+      const ethToken = selectedFromTokens.find(
+        (token) => token.address === "0x0000000000000000000000000000000000000000",
+      );
+      const ethAmount = ethToken ? BigInt(Number(ethToken.balance) * 10 ** ethToken.decimals) : BigInt(0);
+
+      // Get current ETH balance
+      const moralisChain = chainId === 8453 ? "0x2105" : "0x14a34";
+      const nativeResponse = await Moralis.EvmApi.balance.getNativeBalance({
+        chain: moralisChain,
+        address: account,
+      });
+      const ethBalance = BigInt(nativeResponse.toJSON().balance);
+
+      // Convert estimatedGas to Wei
+      const gasInWei = BigInt(Math.ceil(Number(estimatedGas) * 10 ** 18));
+
+      // Check if enough ETH remains for gas
+      if (ethBalance < ethAmount + gasInWei) {
+        alert(
+          `Insufficient ETH for gas fees. You need at least ${(Number(formatEther(ethAmount + gasInWei))).toFixed(6)} ETH, but you have ${formatEther(ethBalance)} ETH.`,
+        );
+        setIsLoading(false);
+        return;
       }
 
-      for (const token of selectedFromTokens) {
-        await depositDust(token.address, token.balance, token.decimals);
+      // Approve ERC-20 tokens if needed
+      for (const token of selectedFromTokens.filter(
+        (t) => t.address !== "0x0000000000000000000000000000000000000000",
+      )) {
+        const amount = BigInt(Number(token.balance) * 10 ** token.decimals);
+        const hasEnoughAllowance = await checkAllowance(token.address, amount);
+        if (!hasEnoughAllowance) {
+          await writeContractAsync({
+            address: token.address,
+            abi: erc20Abi,
+            functionName: "approve",
+            args: [DUST_AGGREGATOR_ADDRESS, amount],
+          });
+        }
       }
 
+      // Batch deposit
+      await depositDustBatch();
+
+      // Swap dust
       await swapDust();
+
       setShowConfirmSend(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Consolidation failed:", error);
-      alert("Consolidation failed.");
+      if (error.message.includes("User denied transaction signature")) {
+        alert("Transaction was rejected. Please approve the transaction in your wallet.");
+      } else {
+        alert("Consolidation failed. Please try again.");
+      }
     }
     setIsLoading(false);
   };
@@ -363,17 +511,6 @@ const CryptoSwap: React.FC = () => {
       fetchDustAssets(account);
     }
   };
-
-  // const openModal = (modalType: ModalType) => {
-  //   setActiveModal(modalType);
-  // };
-
-  // const closeModal = () => {
-  //   setActiveModal(null);
-  //   setLendAmount("");
-  //   setBorrowAmount("");
-  //   setStakeAmount("");
-  // };
 
   return (
     <div className="relative w-full max-w-md mx-auto">
@@ -422,35 +559,41 @@ const CryptoSwap: React.FC = () => {
                     Select dust tokens to consolidate
                   </div>
                   <div className="max-h-60 overflow-y-auto">
-                    {tokens.map((token) => {
-                      const isSelected = selectedFromTokens.some((t) => t.symbol === token.symbol);
-                      return (
-                        <button
-                          key={token.symbol}
-                          onClick={() => handleFromTokenSelect(token)}
-                          className={`flex w-full items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                            isSelected ? "bg-blue-50 dark:bg-blue-900/20" : ""
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="flex h-8 w-8 items-center justify-center rounded-full"
-                              style={{ backgroundColor: token.color }}
-                            >
-                              {token.icon}
+                    {tokens.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-500 dark:text-gray-400">
+                        No tokens with non-zero balance available.
+                      </div>
+                    ) : (
+                      tokens.map((token) => {
+                        const isSelected = selectedFromTokens.some((t) => t.symbol === token.symbol);
+                        return (
+                          <button
+                            key={token.symbol}
+                            onClick={() => handleFromTokenSelect(token)}
+                            className={`flex w-full items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                              isSelected ? "bg-blue-50 dark:bg-blue-900/20" : ""
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="flex h-8 w-8 items-center justify-center rounded-full"
+                                style={{ backgroundColor: token.color }}
+                              >
+                                {token.icon}
+                              </div>
+                              <div className="text-left">
+                                <div className="font-medium dark:text-white">{token.symbol}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">{token.name}</div>
+                              </div>
                             </div>
-                            <div className="text-left">
-                              <div className="font-medium dark:text-white">{token.symbol}</div>
-                              <div className="text-xs text-gray-500 dark:text-gray-400">{token.name}</div>
+                            <div className="text-right">
+                              <div className="text-sm font-medium dark:text-white">{token.balance}</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">{token.value}</div>
                             </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-medium dark:text-white">{token.balance}</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400">{token.value}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               )}
@@ -556,7 +699,7 @@ const CryptoSwap: React.FC = () => {
               </button>
 
               {isToDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 z-10">
+                <div className="absolute right-0 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
                   <div className="p-2 text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
                     Select target token
                   </div>
@@ -576,13 +719,13 @@ const CryptoSwap: React.FC = () => {
                           </div>
                           <div className="text-left">
                             <div className="font-medium dark:text-white">{token.symbol}</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400">{token.name}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">{token.name}</div>
                           </div>
                         </div>
-                        <div className="text-right">
+                        {/* <div className="text-right">
                           <div className="text-sm font-medium dark:text-white">{token.balance}</div>
                           <div className="text-xs text-gray-500 dark:text-gray-400">{token.value}</div>
-                        </div>
+                        </div> */}
                       </button>
                     ))}
                   </div>
@@ -601,9 +744,9 @@ const CryptoSwap: React.FC = () => {
           </div>
 
           <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center text-xs text-[#666666] dark:text-gray-400">
-              Estimated Fee: $0.30
-              <Info className="ml-1 h-3 w-3" />
+            <div className="flex items-center text-xs text-sm text-gray-500 dark:text-gray-400">
+              Estimated Gas Fee: {Number(estimatedGas).toFixed(4)} ETH (~${(Number(estimatedGas) * 2000).toFixed(2)})
+              <Info className="ml-1 text-sm" />
             </div>
           </div>
         </div>
@@ -615,7 +758,7 @@ const CryptoSwap: React.FC = () => {
               className="w-full rounded-lg bg-[#6B48FF] py-3 text-white font-medium hover:bg-[#5a3dd9] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={isLoading || selectedFromTokens.length === 0 || !isConnected}
             >
-              Consolidate
+              Confirm Consolidation
             </button>
           ) : (
             <button
@@ -628,280 +771,29 @@ const CryptoSwap: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Commented out modal for lending, borrowing, staking
-      {activeModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-[20px] p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-medium dark:text-white">
-                {activeModal === "lend" && `Lend ${selectedToToken.symbol}`}
-                {activeModal === "borrow" && `Borrow ${selectedToTokenSymbol}`}
-                {activeModal === "stake" && `Stake ${selectedToToken}`}
-              </h2>
-              <button onClick={closeModal} className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-700">
-                <X className="h-5 w-5 dark:text-gray-400">
-              </button>
-            </div>
-
-            {activeModal === "lend" && (
-              <div className="space-y-4">
-                <div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 p-4">
-                  <h3 className="font-medium text-emerald-700 dark:text-emerald-400 mb-3">
-Morpho Lending Pool</h3>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-600 dark:text-gray-400">Supply APY:</div>
-                    <div className="text-right font-medium text-emerald-600 dark:text-emerald-400">5.1%</div>
-                    <div className="text-gray-600 dark:text-gray-400">Total Supply:</div>
-                    <div className="text-right font-medium">$24.5M"></div>
-                    <div className="text-gray-600 dark:text-gray-400">Utilization:</div>
-                    <div className="text-right font-medium">68%</div>
-                    <div className="text-gray-600 dark:text-gray-400">Your Supply:</div>
-                    <div className="text-right font-medium">0 {selectedToTokenSymbol}</div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Supply Amount
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={lendAmount}
-                      onChange={(e) => setLendAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="text-right w-full rounded-lg font-medium border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 pr-16 dark:text-white"
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">
-                      {selectedToTokenSymbol}
-                    </div>
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span>Available: {selectedToToken.balance} {selectedToTokenSymbol}</span>
-                    <button
-                      onClick={() => setToAmount(selectedToToken.balance)}
-                      className="text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      MAX
-                    </button>
-                  </div>
-                </div>
-
-                <div className="rounded-lg bg-gray-50 dark:bg-gray-700 p-3">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
-Estimated Earnings</div>
-                  <div className="font-medium dark:text-white">
-                    {lendAmount ? ((parseFloat(lendAmount). * 5.1) / 100).toFixed(4) : "0.00"} {selectedToTokenSymbol}
-                    /year
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Protocol fee: 10%</div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button name="text"
-                    onClick={closeModal}
-                    className="rounded-lg border border-gray-300 dark:border-gray-700 py-2 font-medium hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button name="text"
-                    disabled={!lendAmount}
-                    className="rounded-lg bg-emerald-600 py-2 dark:text-white font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Supply
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {activeModal === "borrow" && (
-              <div className="space-y-4">
-                <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-4">
-                  <h3 className="font-medium text-blue-700 dark:text-blue-400 mb-3">
-                    Morpho Borrowing
-                  </h3>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-600 dark:text-gray-400">Borrow APY:</div>
-                    <div className="text-right font-medium text-blue-600 dark:text-blue-400">7.3%</div>
-                    <div className="text-gray-600 dark:text-gray-400">Available:</div>
-                    <div className="text-right font-medium">$12.3M"></div>
-                    <div className="text-gray-600 dark:text-gray-400">Collateral Factor:</div>
-                    <div className="text-right font-medium">75%</div>
-                    <div className="text-gray-600 dark:text-gray-400">Your Debt:</div>
-                    <div className="text-right font-medium">0 {selectedToToken.symbol}></div>
-                      </div>
-                  </div>
-
-                <div>
-                  <label className="font-medium block text-sm text-gray-700 dark:text-gray-300 mb-2">
-                    Borrow Amount
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={borrowAmount}
-                      onChange={(e) => setBorrowAmount(e.target)}value)}
-                      placeholder="0.00"
-                      className="w-full text-right text-sm font-medium border-rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 pr-400"
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">
-                      {selectedToToken.symbol>}
-                    </div>
-                  </div>
-                  <div className="flex justify-between text-gray-500 dark:text-gray-400 text-xs mt-1">
-                    <span>Max</span> {(parseFloat(toAmount) * 0.75).toFixed(2)} {selectedToToken.symbol>}
-                    </span>
-                    <button name="text"
-                      onClick={() => setBorrowAmount((parseFloat(toAmount))) * 0.75).toFixed(2))}
-                      className="text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      MAX
-                    </button>
-                  </div>
-
-                <div className="rounded-lg bg-gray-50 dark:bg-gray-700 p-3">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
-Interest Cost</div>
-                  <div className="font-medium dark:text-white">
-                    {borrowAmount ? ((parseFloat(borrowAmount))) * 7.3) / 100).toFixed(2)} {selectedToTokenSymbol}
-                    /year
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Health Factor:
-                    <div className="text-right font-medium">{borrowAmount
-                      ? (75 / ((parseFloat(borrowAmount)) / parseFloat(toAmount)) * 100)).toFixed(2)
-                      : "∞"}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={closeModal}
-                    className="rounded-lg border border-gray-300 dark:border-gray-700 py-2 font-medium hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    disabled={!borrowAmount}
-                    className="rounded-lg bg-blue-600 py-2 text-white font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Borrow
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {activeModal === "stake" && (
-              <div className="space-y-4">
-                <div className="rounded-lg bg-purple-50 dark:bg-purple-900/20 p-4">
-                  <h3 className="font-medium text-purple-700 dark:text-purple-400 mb-3">Staking Pool</h3>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-600 dark:text-gray-400">Staking APY:</div>
-                    <div className="text-right font-medium text-purple-600 dark:text-purple-400">50%</div>
-                    <div className="text-gray-600 dark:text-gray-400">Total Staked:</div>
-                    <div className="text-right font-medium">$18.2M</div>
-                    <div className="text-gray-600 dark:text-gray-400">Lock Period:</div>
-                    <div className="text-right font-medium">30 days</div>
-                    <div className="text-gray-600 dark:text-gray-400">Your Stake:</div>
-                    <div className="text-right font-medium">0 {selectedToToken.symbol}</div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Stake Amount
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={stakeAmount}
-                      onChange={(e) => setStakeAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 pr-16 text-right dark:text-white"
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">
-                      {selectedToToken.symbol}
-                    </div>
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span>Available: {selectedToToken.balance} {selectedToToken.symbol}</span>
-                    <button
-                      onClick={() => setStakeAmount(selectedToToken.balance)}
-                      className="text-purple-600 dark:text-purple-400 hover:underline"
-                    >
-                      MAX
-                    </button>
-                  </div>
-                </div>
-
-                <div className="rounded-lg bg-gray-50 dark:bg-gray-700 p-3">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Reward Breakdown</div>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Your Rewards:</span>
-                      <span className="font-medium dark:text-white">
-                        {stakeAmount ? (((parseFloat(stakeAmount) * 50) / 100) * 0.85).toFixed(4) : "0.0000"} {selectedToToken.symbol}/year
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Fee (15%):</span>
-                      <span className="font-medium text-purple-600 dark:text-purple-400">
-                        {stakeAmount ? (((parseFloat(stakeAmount) * 50) / 100) * 0.15).toFixed(4) : "0.0000"} {selectedToToken.symbol}/year
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 p-3">
-                  <div className="text-sm text-yellow-700 dark:text-yellow-400">
-                    ⚠️ Staked tokens are locked for 30 days. Early withdrawal incurs a 5% penalty.
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={closeModal}
-                    className="rounded-lg border border-gray-300 dark:border-gray-700 py-2 font-medium hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    disabled={!stakeAmount}
-                    className="rounded-lg bg-purple-600 py-2 text-white font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Stake
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )} */}
     </div>
   );
 };
 
 function USDCIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M9.5 5.2C9.5 4.6 9 4.2 8.3 4.1V3H7.2V4.1C7 4.1 6.7 4.2 6.5 4.2C5.6 4.5 5 5.2 5 6.2C5 7.4 5.8 8 7 8.4L7.2 8.5V11C6.8 10.9 6.4 10.6 6.4 10.1H5C5 11.1 5.7 11.8 7.2 11.9V13H8.3V11.9C9.6 11.8 10.5 11.1 10.5 9.9C10.5 8.7 9.8 8.1 8.5 7.7L8.3 7.6V5.1C8.7 5.2 9 5.5 9 5.9H10.4C10.5 5.7 9.5 5.2 9.5 5.2ZM7.2 7.2L7.1 7.1C6.5 6.9 6.3 6.6 6.3 6.2C6.3 5.7 6.6 5.4 7.2 5.3V7.2ZM8.7 9.8C8.7 10.3 8.3 10.6 7.7 10.7V8.8L7.9 8.9C8.5 9.1 8.7 9.3 8.7 9.8Z"
-        fill="white"
-      />
-    </svg>
+  <svg xmlns="http://www.w3.org/2000/svg" data-name="86977684-12db-4850-8f30-233a7c267d11" viewBox="0 0 2000 2000">
+    <path d="M1000 2000c554.17 0 1000-445.83 1000-1000S1554.17 0 1000 0 0 445.83 0 1000s445.83 1000 1000 1000z" fill="#2775ca"/>
+    <path d="M1275 1158.33c0-145.83-87.5-195.83-262.5-216.66-125-16.67-150-50-150-108.34s41.67-95.83 125-95.83c75 0 116.67 25 137.5 87.5 4.17 12.5 16.67 20.83 29.17 20.83h66.66c16.67 0 29.17-12.5 29.17-29.16v-4.17c-16.67-91.67-91.67-162.5-187.5-170.83v-100c0-16.67-12.5-29.17-33.33-33.34h-62.5c-16.67 0-29.17 12.5-33.34 33.34v95.83c-125 16.67-204.16 100-204.16 204.17 0 137.5 83.33 191.66 258.33 212.5 116.67 20.83 154.17 45.83 154.17 112.5s-58.34 112.5-137.5 112.5c-108.34 0-145.84-45.84-158.34-108.34-4.16-16.66-16.66-25-29.16-25h-70.84c-16.66 0-29.16 12.5-29.16 29.17v4.17c16.66 104.16 83.33 179.16 220.83 200v100c0 16.66 12.5 29.16 33.33 33.33h62.5c16.67 0 29.17-12.5 33.34-33.33v-100c125-20.84 208.33-108.34 208.33-220.84z" fill="#fff"/>
+    <path d="M787.5 1595.83c-325-116.66-491.67-479.16-370.83-800 62.5-175 200-308.33 370.83-370.83 16.67-8.33 25-20.83 25-41.67V325c0-16.67-8.33-29.17-25-33.33-4.17 0-12.5 0-16.67 4.16-395.83 125-612.5 545.84-487.5 941.67 75 233.33 254.17 412.5 487.5 487.5 16.67 8.33 33.34 0 37.5-16.67 4.17-4.16 4.17-8.33 4.17-16.66v-58.34c0-12.5-12.5-29.16-25-37.5zM1229.17 295.83c-16.67-8.33-33.34 0-37.5 16.67-4.17 4.17-4.17 8.33-4.17 16.67v58.33c0 16.67 12.5 33.33 25 41.67 325 116.66 491.67 479.16 370.83 800-62.5 175-200 308.33-370.83 370.83-16.67 8.33-25 20.83-25 41.67V1700c0 16.67 8.33 29.17 25 33.33 4.17 0 12.5 0 16.67-4.16 395.83-125 612.5-545.84 487.5-941.67-75-237.5-258.34-416.67-487.5-491.67z" fill="#fff"/>
+  </svg>
   );
 }
 
 function DAIIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M8 2C4.68629 2 2 4.68629 2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2ZM10.5 10.5H8.5V11.5H7.5V10.5H5.5V9.5H7.5V8.5H5.5V7.5H7.5V6.5H8.5V7.5H10.5V8.5H8.5V9.5H10.5V10.5Z"
-        fill="white"
-      />
-    </svg>
+  <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" version="1.1" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd" viewBox="0 0 444.44 444.44">
+  <g id="Layer_x0020_1">
+    <metadata id="CorelCorpID_0Corel-Layer"/>
+    <path fill="#F5AC37" fill-rule="nonzero" d="M222.22 0c122.74,0 222.22,99.5 222.22,222.22 0,122.74 -99.48,222.22 -222.22,222.22 -122.72,0 -222.22,-99.49 -222.22,-222.22 0,-122.72 99.5,-222.22 222.22,-222.22z"/>
+    <path fill="#FEFEFD" fill-rule="nonzero" d="M230.41 237.91l84.44 0c1.8,0 2.65,0 2.78,-2.36 0.69,-8.59 0.69,-17.23 0,-25.83 0,-1.67 -0.83,-2.36 -2.64,-2.36l-168.05 0c-2.08,0 -2.64,0.69 -2.64,2.64l0 24.72c0,3.19 0,3.19 3.33,3.19l82.78 0zm77.79 -59.44c0.24,-0.63 0.24,-1.32 0,-1.94 -1.41,-3.07 -3.08,-6 -5.02,-8.75 -2.92,-4.7 -6.36,-9.03 -10.28,-12.92 -1.85,-2.35 -3.99,-4.46 -6.39,-6.25 -12.02,-10.23 -26.31,-17.47 -41.67,-21.11 -7.75,-1.74 -15.67,-2.57 -23.61,-2.5l-74.58 0c-2.08,0 -2.36,0.83 -2.36,2.64l0 49.3c0,2.08 0,2.64 2.64,2.64l160.27 0c0,0 1.39,-0.28 1.67,-1.11l-0.68 0zm0 88.33c-2.36,-0.26 -4.74,-0.26 -7.1,0l-154.02 0c-2.08,0 -2.78,0 -2.78,2.78l0 48.2c0,2.22 0,2.78 2.78,2.78l71.11 0c3.4,0.26 6.8,0.02 10.13,-0.69 10.32,-0.74 20.47,-2.98 30.15,-6.67 3.52,-1.22 6.92,-2.81 10.13,-4.72l0.97 0c16.67,-8.67 30.21,-22.29 38.75,-39.01 0,0 0.97,-2.1 -0.12,-2.65zm-191.81 78.75l0 -0.83 0 -32.36 0 -10.97 0 -32.64c0,-1.81 0,-2.08 -2.22,-2.08l-30.14 0c-1.67,0 -2.36,0 -2.36,-2.22l0 -26.39 32.22 0c1.8,0 2.5,0 2.5,-2.36l0 -26.11c0,-1.67 0,-2.08 -2.22,-2.08l-30.14 0c-1.67,0 -2.36,0 -2.36,-2.22l0 -24.44c0,-1.53 0,-1.94 2.22,-1.94l29.86 0c2.08,0 2.64,0 2.64,-2.64l0 -74.86c0,-2.22 0,-2.78 2.78,-2.78l104.16 0c7.56,0.3 15.07,1.13 22.5,2.5 15.31,2.83 30.02,8.3 43.47,16.11 8.92,5.25 17.13,11.59 24.44,18.89 5.5,5.71 10.46,11.89 14.86,18.47 4.37,6.67 8,13.8 10.85,21.25 0.35,1.94 2.21,3.25 4.15,2.92l24.86 0c3.19,0 3.19,0 3.33,3.06l0 22.78c0,2.22 -0.83,2.78 -3.06,2.78l-19.17 0c-1.94,0 -2.5,0 -2.36,2.5 0.76,8.46 0.76,16.95 0,25.41 0,2.36 0,2.64 2.65,2.64l21.93 0c0.97,1.25 0,2.5 0,3.76 0.14,1.61 0.14,3.24 0,4.85l0 16.81c0,2.36 -0.69,3.06 -2.78,3.06l-26.25 0c-1.83,-0.35 -3.61,0.82 -4.03,2.64 -6.25,16.25 -16.25,30.82 -29.17,42.5 -4.72,4.25 -9.68,8.25 -14.86,11.94 -5.56,3.2 -10.97,6.53 -16.67,9.17 -10.49,4.72 -21.49,8.2 -32.78,10.41 -10.72,1.92 -21.59,2.79 -32.5,2.64l-96.39 0 0 -0.14z"/>
+  </g>
+  </svg>
   );
 }
 
@@ -920,10 +812,20 @@ function WETHIcon() {
 
 function ETHIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M8 0L0 8L8 16L16 8L8 0Z" fill="white" fillOpacity="0.602" />
-      <path d="M8 0L0 8L8 10V0Z" fill="white" />
-      <path d="M8 16L0 8L8 10V16Z" fill="white" fillOpacity="0.602" />
+    <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" version="1.1" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd" viewBox="0 0 784.37 1277.39">
+    <g id="Layer_x0020_1">
+      <metadata id="CorelCorpID_0Corel-Layer"/>
+      <g id="_1421394342400">
+      <g>
+        <polygon fill="#343434" fill-rule="nonzero" points="392.07,0 383.5,29.11 383.5,873.74 392.07,882.29 784.13,650.54 "/>
+        <polygon fill="#8C8C8C" fill-rule="nonzero" points="392.07,0 -0,650.54 392.07,882.29 392.07,472.33 "/>
+        <polygon fill="#3C3C3B" fill-rule="nonzero" points="392.07,956.52 387.24,962.41 387.24,1263.28 392.07,1277.38 784.37,724.89 "/>
+        <polygon fill="#8C8C8C" fill-rule="nonzero" points="392.07,1277.38 392.07,956.52 -0,724.89 "/>
+        <polygon fill="#141414" fill-rule="nonzero" points="392.07,882.29 784.13,650.54 392.07,472.33 "/>
+        <polygon fill="#393939" fill-rule="nonzero" points="0,650.54 392.07,882.29 392.07,472.33 "/>
+      </g>
+      </g>
+    </g>
     </svg>
   );
 }
