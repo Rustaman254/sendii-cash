@@ -1,11 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import OnrampOfframp from "@/components/onramp-offramp";
 import TransactionHistory from "@/components/transaction-history";
 import Header from "@/components/header";
-import WagmiProviderWrapper from "./WagmiProviderWrapper";
 import { ArrowLeftRight, History } from "lucide-react";
+
+// Dynamically import WagmiProviderWrapper to avoid SSR issues
+const WagmiProviderWrapper = dynamic(() => import("./WagmiProviderWrapper"), {
+  ssr: false,
+});
 
 export default function Home() {
   const [activeView, setActiveView] = useState<"swap" | "history">("swap");
@@ -21,8 +26,8 @@ export default function Home() {
             <button
               onClick={() => setActiveView("swap")}
               className={`flex items-center gap-2 px-6 py-2 rounded-full font-medium transition-all ${activeView === "swap"
-                  ? "bg-[#6B48FF] text-white"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                ? "bg-[#6B48FF] text-white"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 }`}
             >
               <ArrowLeftRight className="h-4 w-4" />
@@ -31,8 +36,8 @@ export default function Home() {
             <button
               onClick={() => setActiveView("history")}
               className={`flex items-center gap-2 px-6 py-2 rounded-full font-medium transition-all ${activeView === "history"
-                  ? "bg-[#6B48FF] text-white"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                ? "bg-[#6B48FF] text-white"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 }`}
             >
               <History className="h-4 w-4" />
