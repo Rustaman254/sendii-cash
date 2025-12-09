@@ -73,15 +73,15 @@ export default function Header() {
   // Map chain ID to network info
   const currentChain = chain
     ? supportedChains.find((c) => c.id === chain.id) || {
-        id: chain.id,
-        name: chain.name,
-        icon: <img src="/assets/default-chain.png" alt="Unknown" className="h-4 w-4" />,
-      }
+      id: chain.id,
+      name: chain.name,
+      icon: <img src="/assets/default-chain.png" alt="Unknown" className="h-4 w-4" />,
+    }
     : {
-        id: 0,
-        name: "Unknown Network",
-        icon: <img src="/assets/default-chain.png" alt="Unknown" className="h-4 w-4" />,
-      }
+      id: 0,
+      name: "Unknown Network",
+      icon: <img src="/assets/default-chain.png" alt="Unknown" className="h-4 w-4" />,
+    }
 
   return (
     // *** Header JSX ***
@@ -89,7 +89,7 @@ export default function Header() {
       className="flex w-full items-center justify-between px-6 py-4 z-10"
       style={{ '--base-fill-color': '#6B48FF' } as React.CSSProperties}
     >
-      <div className="font-bold text-xl text-foreground">LUCRA</div>
+      <div className="font-bold text-xl text-foreground">SendiiCash</div>
       <div className="flex items-center gap-4">
         <ThemeToggle />
         <ConnectButton.Custom>
