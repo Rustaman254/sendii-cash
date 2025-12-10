@@ -5,49 +5,45 @@ import { CheckCircle, Clock, XCircle, ArrowUpRight, ArrowDownLeft } from "lucide
 
 interface Transaction {
     id: string;
-    type: "deposit" | "withdraw" | "pay";
+    type: "onramp" | "offramp";
     amount: string;
     token: string;
-    fiatAmount: string;
+    kesAmount: string;
     phone: string;
     status: "pending" | "completed" | "failed";
     timestamp: Date;
-    provider?: string;
 }
 
 const mockTransactions: Transaction[] = [
     {
         id: "1",
-        type: "deposit",
+        type: "onramp",
         amount: "100.00",
-        token: "RLUSD",
-        fiatAmount: "15,000",
+        token: "USDC",
+        kesAmount: "15,000",
         phone: "+254712345678",
         status: "completed",
         timestamp: new Date(Date.now() - 3600000),
-        provider: "M-Pesa",
     },
     {
         id: "2",
-        type: "withdraw",
+        type: "offramp",
         amount: "50.00",
-        token: "RLUSD",
-        fiatAmount: "7,500",
+        token: "USDT",
+        kesAmount: "7,500",
         phone: "+254798765432",
         status: "pending",
         timestamp: new Date(Date.now() - 1800000),
-        provider: "M-Pesa",
     },
     {
         id: "3",
-        type: "pay",
-        amount: "25.00",
-        token: "RLUSD",
-        fiatAmount: "3,750",
-        phone: "+256712345678",
+        type: "onramp",
+        amount: "200.00",
+        token: "DAI",
+        kesAmount: "30,000",
+        phone: "+254712345678",
         status: "completed",
         timestamp: new Date(Date.now() - 86400000),
-        provider: "MTN Mobile Money",
     },
 ];
 
@@ -100,27 +96,23 @@ export default function TransactionHistory() {
                             className="flex items-center justify-between p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
                         >
                             <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-full ${tx.type === "deposit"
+                                <div className={`p-2 rounded-full ${tx.type === "onramp"
                                         ? "bg-green-100 dark:bg-green-900/30"
-                                        : tx.type === "withdraw"
-                                            ? "bg-blue-100 dark:bg-blue-900/30"
-                                            : "bg-purple-100 dark:bg-purple-900/30"
+                                        : "bg-blue-100 dark:bg-blue-900/30"
                                     }`}>
-                                    {tx.type === "deposit" ? (
+                                    {tx.type === "onramp" ? (
                                         <ArrowDownLeft className="h-5 w-5 text-green-600 dark:text-green-400" />
-                                    ) : tx.type === "withdraw" ? (
-                                        <ArrowUpRight className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                                     ) : (
-                                        <ArrowUpRight className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                                        <ArrowUpRight className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                                     )}
                                 </div>
 
                                 <div>
                                     <div className="font-medium dark:text-white">
-                                        {tx.type === "deposit" ? "Deposited" : tx.type === "withdraw" ? "Withdrew" : "Sent"} {tx.amount} {tx.token}
+                                        {tx.type === "onramp" ? "Bought" : "Sold"} {tx.amount} {tx.token}
                                     </div>
                                     <div className="text-sm text-gray-500 dark:text-gray-400">
-                                        {tx.fiatAmount} {tx.provider && `• ${tx.provider}`} • {tx.phone}
+                                        KES {tx.kesAmount} • {tx.phone}
                                     </div>
                                 </div>
                             </div>

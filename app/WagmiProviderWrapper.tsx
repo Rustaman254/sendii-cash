@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { WagmiProvider } from "wagmi";
-import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { RainbowKitProvider, getDefaultConfig, darkTheme, lightTheme } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { baseSepolia } from "viem/chains";
 import { http } from "viem";
@@ -18,10 +18,26 @@ const config = getDefaultConfig({
     // [avalanche.id]: http("https://api.avax.network/ext/bc/C/rpc"),
     // [base.id]: http("https://mainnet.base.org"), 
     // [avalancheFuji.id]: http("https://api.avax-test.network/ext/bc/C/rpc"), 
-    [baseSepolia.id]: http("https://sepolia.base.org"), 
+    [baseSepolia.id]: http("https://sepolia.base.org"),
   },
   ssr: true,
 });
+
+// Custom theme with purple accent color
+const customTheme = {
+  lightMode: lightTheme({
+    accentColor: '#6B48FF',
+    accentColorForeground: 'white',
+    borderRadius: 'large',
+    fontStack: 'system',
+  }),
+  darkMode: darkTheme({
+    accentColor: '#6B48FF',
+    accentColorForeground: 'white',
+    borderRadius: 'large',
+    fontStack: 'system',
+  }),
+};
 
 interface WagmiProviderWrapperProps {
   children: ReactNode;
@@ -31,7 +47,12 @@ export default function WagmiProviderWrapper({ children }: WagmiProviderWrapperP
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider modalSize="compact">{children}</RainbowKitProvider>
+        <RainbowKitProvider
+          modalSize="compact"
+          theme={customTheme}
+        >
+          {children}
+        </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

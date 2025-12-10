@@ -1,199 +1,105 @@
 "use client";
 
 import React, { useState } from "react";
-import { ArrowDown, ChevronDown, Phone, Send, Copy, Check } from "lucide-react";
+import { ArrowDown, ChevronDown, Phone, Wallet } from "lucide-react";
 import { parsePhoneNumber } from "libphonenumber-js";
 import toast, { Toaster } from "react-hot-toast";
-import Image from "next/image";
-import ConfirmationModal from "./confirmation-modal";
-import Receipt from "./receipt";
 
 interface Token {
   symbol: string;
   name: string;
-  icon: React.ReactElement;
+  icon: JSX.Element;
   color: string;
-}
-
-interface PaymentProvider {
-  id: string;
-  name: string;
-  country: string;
-  countryCode: string;
-  logo: string;
-  phonePrefix: string;
 }
 
 const availableTokens: Token[] = [
   {
-    symbol: "RLUSD",
-    name: "Ripple USD",
-    icon: <RLUSDIcon />,
-    color: "#0085FF",
+    symbol: "USDC",
+    name: "USD Coin",
+    icon: <USDCIcon />,
+    color: "#2775CA",
+  },
+  {
+    symbol: "USDT",
+    name: "Tether USD",
+    icon: <USDTIcon />,
+    color: "#26A17B",
+  },
+  {
+    symbol: "DAI",
+    name: "DAI Stablecoin",
+    icon: <DAIIcon />,
+    color: "#F5AC37",
   },
 ];
 
-const paymentProviders: PaymentProvider[] = [
-  {
-    id: "mpesa-ke",
-    name: "M-Pesa",
-    country: "Kenya",
-    countryCode: "KE",
-    logo: "/assets/mpesa-logo.png",
-    phonePrefix: "+254",
-  },
-  {
-    id: "mtn-ug",
-    name: "MTN Mobile Money",
-    country: "Uganda",
-    countryCode: "UG",
-    logo: "/assets/mtn-logo.png",
-    phonePrefix: "+256",
-  },
-  {
-    id: "opay-ng",
-    name: "OPay",
-    country: "Nigeria",
-    countryCode: "NG",
-    logo: "/assets/opay-logo.png",
-    phonePrefix: "+234",
-  },
-];
+const MOCK_EXCHANGE_RATE = 150; // 1 USD = 150 KES
 
-const MOCK_EXCHANGE_RATE = 150; // 1 USD = 150 KES (adjust per provider)
-
-export default function CashInOut() {
-  const [activeTab, setActiveTab] = useState<"deposit" | "withdraw" | "pay">("deposit");
-  const [fiatAmount, setFiatAmount] = useState("");
+export default function OnrampOfframp() {
+  const [activeTab, setActiveTab] = useState<"onramp" | "offramp">("onramp");
+  const [kesAmount, setKesAmount] = useState("");
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [selectedToken] = useState<Token>(availableTokens[0]);
-  const [selectedProvider, setSelectedProvider] = useState<PaymentProvider>(paymentProviders[0]);
-  const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
+  const [selectedToken, setSelectedToken] = useState<Token>(availableTokens[0]);
+  const [isTokenDropdownOpen, setIsTokenDropdownOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Pay tab specific states
-  const [recipientPhone, setRecipientPhone] = useState("");
-  const [payAmount, setPayAmount] = useState("");
-  const [payNote, setPayNote] = useState("");
-
-  // Deposit tab specific states
-  const [walletAddress] = useState("rN7n7otQDd6FczFgLdhmKRXKLNpYhPPpLp");
-  const [copiedAddress, setCopiedAddress] = useState(false);
-
-  // Modal states
-  const [showConfirmation, setShowConfirmation] = useState(false);
-  const [showReceipt, setShowReceipt] = useState(false);
-  const [lastTransaction, setLastTransaction] = useState<any>(null);
-
-  const handleFiatChange = (value: string) => {
-    setFiatAmount(value);
+  const handleKesChange = (value: string) => {
+    setKesAmount(value);
     const crypto = (parseFloat(value) / MOCK_EXCHANGE_RATE).toFixed(2);
     setCryptoAmount(isNaN(parseFloat(crypto)) ? "" : crypto);
   };
 
   const handleCryptoChange = (value: string) => {
     setCryptoAmount(value);
-    const fiat = (parseFloat(value) * MOCK_EXCHANGE_RATE).toFixed(2);
-    setFiatAmount(isNaN(parseFloat(fiat)) ? "" : fiat);
+    const kes = (parseFloat(value) * MOCK_EXCHANGE_RATE).toFixed(2);
+    setKesAmount(isNaN(parseFloat(kes)) ? "" : kes);
   };
 
-  const validatePhone = (phone: string, provider: PaymentProvider): boolean => {
+  const validatePhone = (phone: string): boolean => {
     try {
-      const phoneNum = parsePhoneNumber(phone, provider.countryCode as any);
+      const phoneNum = parsePhoneNumber(phone, "KE");
       return phoneNum.isValid();
     } catch {
       return false;
     }
   };
 
-  const getCurrencySymbol = () => {
-    switch (selectedProvider.country) {
-      case "Kenya": return "KES";
-      case "Uganda": return "UGX";
-      case "Nigeria": return "NGN";
-      default: return "KES";
+  const handleOnramp = () => {
+    if (!kesAmount || parseFloat(kesAmount) <= 0) {
+      toast.error("Please enter a valid KES amount");
+      return;
     }
+    if (!validatePhone(phoneNumber)) {
+      toast.error("Please enter a valid Kenyan phone number");
+      return;
+    }
+
+    setIsProcessing(true);
+    toast.loading("Initiating M-Pesa payment...", { duration: 2000 });
+
+    setTimeout(() => {
+      setIsProcessing(false);
+      toast.success(`M-Pesa prompt sent to ${phoneNumber}. Check your phone to complete payment.`);
+    }, 2000);
   };
 
-  const handleCopyAddress = () => {
-    navigator.clipboard.writeText(walletAddress);
-    setCopiedAddress(true);
-    toast.success("Wallet address copied!");
-    setTimeout(() => setCopiedAddress(false), 2000);
-  };
-
-  const handleWithdrawClick = () => {
+  const handleOfframp = () => {
     if (!cryptoAmount || parseFloat(cryptoAmount) <= 0) {
       toast.error("Please enter a valid crypto amount");
       return;
     }
-    if (!validatePhone(phoneNumber, selectedProvider)) {
-      toast.error(`Please enter a valid ${selectedProvider.country} phone number`);
+    if (!validatePhone(phoneNumber)) {
+      toast.error("Please enter a valid Kenyan phone number");
       return;
     }
-    setShowConfirmation(true);
-  };
 
-  const handlePayClick = () => {
-    if (!payAmount || parseFloat(payAmount) <= 0) {
-      toast.error("Please enter a valid amount");
-      return;
-    }
-    if (!validatePhone(recipientPhone, selectedProvider)) {
-      toast.error(`Please enter a valid ${selectedProvider.country} phone number`);
-      return;
-    }
-    setShowConfirmation(true);
-  };
-
-  const handleConfirmTransaction = () => {
-    setShowConfirmation(false);
     setIsProcessing(true);
-
-    const loadingMessage = activeTab === "deposit"
-      ? `Initiating ${selectedProvider.name} payment...`
-      : activeTab === "withdraw"
-        ? "Processing withdrawal..."
-        : "Processing payment...";
-
-    toast.loading(loadingMessage, { duration: 2000 });
+    toast.loading("Processing withdrawal...", { duration: 2000 });
 
     setTimeout(() => {
       setIsProcessing(false);
-
-      // Create transaction record
-      const transaction = {
-        type: activeTab,
-        amount: activeTab === "pay" ? payAmount : cryptoAmount,
-        token: selectedToken.symbol,
-        fiatAmount: activeTab === "pay"
-          ? `${(parseFloat(payAmount) * MOCK_EXCHANGE_RATE).toFixed(2)} ${getCurrencySymbol()}`
-          : `${fiatAmount} ${getCurrencySymbol()}`,
-        phone: activeTab === "pay" ? phoneNumber : phoneNumber,
-        recipientPhone: activeTab === "pay" ? recipientPhone : undefined,
-        provider: selectedProvider.name,
-        transactionId: `TXN${Date.now().toString().slice(-8)}`,
-        timestamp: new Date(),
-        status: "success" as const,
-        note: activeTab === "pay" ? payNote : undefined,
-      };
-
-      setLastTransaction(transaction);
-      setShowReceipt(true);
-
-      // Clear form
-      if (activeTab === "pay") {
-        setPayAmount("");
-        setRecipientPhone("");
-        setPayNote("");
-      } else {
-        setFiatAmount("");
-        setCryptoAmount("");
-        setPhoneNumber("");
-      }
-
-      toast.success("Transaction completed successfully!");
+      toast.success(`KES ${kesAmount} will be sent to ${phoneNumber} via M-Pesa`);
     }, 2000);
   };
 
@@ -205,391 +111,236 @@ export default function CashInOut() {
           {/* Tabs */}
           <div className="flex border-b border-gray-200 dark:border-gray-700">
             <button
-              onClick={() => setActiveTab("deposit")}
-              className={`flex-1 py-4 text-center font-medium transition-colors ${activeTab === "deposit"
-                ? "text-[#6B48FF] border-b-2 border-[#6B48FF]"
-                : "text-gray-500 dark:text-gray-400"
+              onClick={() => setActiveTab("onramp")}
+              className={`flex-1 py-4 text-center font-medium transition-colors ${activeTab === "onramp"
+                  ? "text-[#6B48FF] border-b-2 border-[#6B48FF]"
+                  : "text-gray-500 dark:text-gray-400"
                 }`}
             >
-              Deposit
+              Buy Crypto
             </button>
             <button
-              onClick={() => setActiveTab("pay")}
-              className={`flex-1 py-4 text-center font-medium transition-colors ${activeTab === "pay"
-                ? "text-[#6B48FF] border-b-2 border-[#6B48FF]"
-                : "text-gray-500 dark:text-gray-400"
+              onClick={() => setActiveTab("offramp")}
+              className={`flex-1 py-4 text-center font-medium transition-colors ${activeTab === "offramp"
+                  ? "text-[#6B48FF] border-b-2 border-[#6B48FF]"
+                  : "text-gray-500 dark:text-gray-400"
                 }`}
             >
-              Pay
-            </button>
-            <button
-              onClick={() => setActiveTab("withdraw")}
-              className={`flex-1 py-4 text-center font-medium transition-colors ${activeTab === "withdraw"
-                ? "text-[#6B48FF] border-b-2 border-[#6B48FF]"
-                : "text-gray-500 dark:text-gray-400"
-                }`}
-            >
-              Withdraw
+              Sell Crypto
             </button>
           </div>
 
           <div className="p-6">
-            {/* Payment Provider Selector - Only show for Pay and Withdraw tabs */}
-            {activeTab !== "deposit" && (
-              <div className="mb-4">
-                <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
-                  Payment Provider
-                </label>
-                <div className="relative">
-                  <button
-                    onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
-                    className="w-full flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
-                        <Phone className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      </div>
-                      <div className="text-left">
-                        <div className="font-medium dark:text-white">{selectedProvider.name}</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">{selectedProvider.country}</div>
-                      </div>
-                    </div>
-                    <ChevronDown className="h-4 w-4 dark:text-gray-400" />
-                  </button>
-
-                  {isProviderDropdownOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-2 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 z-10">
-                      {paymentProviders.map((provider) => (
-                        <button
-                          key={provider.id}
-                          onClick={() => {
-                            setSelectedProvider(provider);
-                            setIsProviderDropdownOpen(false);
-                            setPhoneNumber("");
-                            setRecipientPhone("");
-                          }}
-                          className="flex w-full items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700 first:rounded-t-lg last:rounded-b-lg"
-                        >
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
-                            <Phone className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                          </div>
-                          <div className="text-left">
-                            <div className="font-medium dark:text-white">{provider.name}</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400">{provider.country}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {activeTab === "deposit" ? (
-              // Deposit Tab Content - QR Code and Wallet Address
-              <>
-                <div className="text-center mb-6">
-                  <h3 className="text-lg font-semibold dark:text-white mb-2">Deposit RLUSD</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Transfer RLUSD from another wallet to this address
-                  </p>
-                </div>
-
-                {/* Supported Token */}
-                <div className="mb-6 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-4 border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Supported Token</div>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="flex h-6 w-6 items-center justify-center rounded-full"
-                          style={{ backgroundColor: selectedToken.color }}
-                        >
-                          {selectedToken.icon}
-                        </div>
-                        <span className="font-semibold dark:text-white">{selectedToken.symbol}</span>
-                        <span className="text-sm text-gray-600 dark:text-gray-400">({selectedToken.name})</span>
-                      </div>
-                    </div>
+            {/* From Section */}
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm text-[#666666] dark:text-gray-400">
+                  {activeTab === "onramp" ? "You pay" : "You send"}
+                </span>
+                {activeTab === "onramp" ? (
+                  <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
+                    <Phone className="h-4 w-4 text-green-600" />
+                    <span className="font-medium dark:text-white">M-Pesa</span>
                   </div>
-                </div>
-
-                {/* Supported Chain */}
-                <div className="mb-6 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-4 border border-purple-200 dark:border-purple-800">
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Supported Chain</div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-black">
-                      <span className="text-white text-xs font-bold">X</span>
-                    </div>
-                    <span className="font-semibold dark:text-white">XRP Ledger</span>
-                  </div>
-                </div>
-
-                {/* QR Code */}
-                <div className="mb-6 flex justify-center">
-                  <div className="p-4 bg-white dark:bg-gray-700 rounded-2xl shadow-lg">
-                    <div className="w-48 h-48 bg-gray-100 dark:bg-gray-600 rounded-lg flex items-center justify-center">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=192x192&data=${walletAddress}`}
-                        alt="Wallet QR Code"
-                        className="w-full h-full rounded-lg"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Wallet Address */}
-                <div className="mb-6">
-                  <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
-                    Wallet Address
-                  </label>
+                ) : (
                   <div className="relative">
-                    <div className="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800 px-4 py-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-sm dark:text-white break-all">
-                          {walletAddress}
-                        </span>
-                        <button
-                          onClick={handleCopyAddress}
-                          className="flex-shrink-0 p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                        >
-                          {copiedAddress ? (
-                            <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
-                          ) : (
-                            <Copy className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Important Notice */}
-                <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4">
-                  <div className="flex gap-3">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-yellow-600 dark:text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="text-sm">
-                      <p className="font-semibold text-yellow-800 dark:text-yellow-300 mb-1">Important</p>
-                      <ul className="text-yellow-700 dark:text-yellow-400 space-y-1 list-disc list-inside">
-                        <li>Only send RLUSD to this address</li>
-                        <li>Make sure you're using the XRP Ledger network</li>
-                        <li>Sending other tokens may result in permanent loss</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : activeTab === "pay" ? (
-              // Pay Tab Content
-              <>
-                <div className="mb-4">
-                  <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
-                    Recipient Phone Number
-                  </label>
-                  <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <span className="text-gray-500 dark:text-gray-400">{selectedProvider.phonePrefix}</span>
-                    <input
-                      type="tel"
-                      value={recipientPhone}
-                      onChange={(e) => setRecipientPhone(e.target.value)}
-                      placeholder={selectedProvider.country === "Kenya" ? "712345678" : selectedProvider.country === "Uganda" ? "712345678" : "8012345678"}
-                      className="flex-1 border-none bg-transparent outline-none dark:text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
-                    Amount ({selectedToken.symbol})
-                  </label>
-                  <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <div
-                      className="flex h-6 w-6 items-center justify-center rounded-full"
-                      style={{ backgroundColor: selectedToken.color }}
+                    <button
+                      onClick={() => setIsTokenDropdownOpen(!isTokenDropdownOpen)}
+                      className="flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800"
                     >
-                      {selectedToken.icon}
-                    </div>
-                    <input
-                      type="number"
-                      value={payAmount}
-                      onChange={(e) => setPayAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="flex-1 border-none bg-transparent outline-none text-lg font-medium dark:text-white"
-                    />
-                  </div>
-                  <div className="text-sm text-[#666666] dark:text-gray-400 mt-1">
-                    ≈ {(parseFloat(payAmount || "0") * MOCK_EXCHANGE_RATE).toFixed(2)} {getCurrencySymbol()}
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
-                    Note (Optional)
-                  </label>
-                  <textarea
-                    value={payNote}
-                    onChange={(e) => setPayNote(e.target.value)}
-                    placeholder="Add a note..."
-                    rows={3}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white outline-none resize-none"
-                  />
-                </div>
-
-                <button
-                  onClick={handlePayClick}
-                  disabled={isProcessing}
-                  className="w-full rounded-lg bg-[#6B48FF] py-3 text-white font-medium hover:bg-[#5a3dd9] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  <Send className="h-4 w-4" />
-                  {isProcessing ? "Processing..." : "Send Payment"}
-                </button>
-              </>
-            ) : (
-              // Withdraw Tab Content
-              <>
-                {/* From Section */}
-                <div className="mb-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm text-[#666666] dark:text-gray-400">
-                      You send
-                    </span>
-                    <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
                       <div
-                        className="flex h-[24px] w-[24px] items-center justify-center rounded-full"
+                        className="mr-2 flex h-[30px] w-[30px] items-center justify-center rounded-full"
                         style={{ backgroundColor: selectedToken.color }}
                       >
                         {selectedToken.icon}
                       </div>
                       <span className="font-medium dark:text-white">{selectedToken.symbol}</span>
-                    </div>
-                  </div>
+                      <ChevronDown className="ml-1 h-4 w-4 dark:text-gray-400" />
+                    </button>
 
-                  <input
-                    type="number"
-                    value={cryptoAmount}
-                    onChange={(e) => handleCryptoChange(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full border-none bg-transparent p-0 text-2xl font-medium outline-none dark:text-white"
-                  />
-                  <div className="text-sm text-[#666666] dark:text-gray-400">
-                    ~{cryptoAmount || "0.00"} {selectedToken.symbol}
+                    {isTokenDropdownOpen && (
+                      <div className="absolute right-0 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 z-10">
+                        {availableTokens.map((token) => (
+                          <button
+                            key={token.symbol}
+                            onClick={() => {
+                              setSelectedToken(token);
+                              setIsTokenDropdownOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700"
+                          >
+                            <div
+                              className="flex h-8 w-8 items-center justify-center rounded-full"
+                              style={{ backgroundColor: token.color }}
+                            >
+                              {token.icon}
+                            </div>
+                            <div className="text-left">
+                              <div className="font-medium dark:text-white">{token.symbol}</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">{token.name}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
+              </div>
 
-                {/* Arrow */}
-                <div className="relative flex justify-center my-4">
-                  <div className="flex h-[40px] w-[40px] items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-                    <ArrowDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+              <input
+                type="number"
+                value={activeTab === "onramp" ? kesAmount : cryptoAmount}
+                onChange={(e) =>
+                  activeTab === "onramp"
+                    ? handleKesChange(e.target.value)
+                    : handleCryptoChange(e.target.value)
+                }
+                placeholder="0.00"
+                className="w-full border-none bg-transparent p-0 text-2xl font-medium outline-none dark:text-white"
+              />
+              <div className="text-sm text-[#666666] dark:text-gray-400">
+                {activeTab === "onramp" ? `KES ${kesAmount || "0.00"}` : `~$${cryptoAmount || "0.00"}`}
+              </div>
+            </div>
+
+            {/* Arrow */}
+            <div className="relative flex justify-center my-4">
+              <div className="flex h-[40px] w-[40px] items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+                <ArrowDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+              </div>
+            </div>
+
+            {/* To Section */}
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm text-[#666666] dark:text-gray-400">
+                  {activeTab === "onramp" ? "You receive" : "You receive"}
+                </span>
+                {activeTab === "onramp" ? (
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsTokenDropdownOpen(!isTokenDropdownOpen)}
+                      className="flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800"
+                    >
+                      <div
+                        className="mr-2 flex h-[30px] w-[30px] items-center justify-center rounded-full"
+                        style={{ backgroundColor: selectedToken.color }}
+                      >
+                        {selectedToken.icon}
+                      </div>
+                      <span className="font-medium dark:text-white">{selectedToken.symbol}</span>
+                      <ChevronDown className="ml-1 h-4 w-4 dark:text-gray-400" />
+                    </button>
+
+                    {isTokenDropdownOpen && (
+                      <div className="absolute right-0 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 z-10">
+                        {availableTokens.map((token) => (
+                          <button
+                            key={token.symbol}
+                            onClick={() => {
+                              setSelectedToken(token);
+                              setIsTokenDropdownOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700"
+                          >
+                            <div
+                              className="flex h-8 w-8 items-center justify-center rounded-full"
+                              style={{ backgroundColor: token.color }}
+                            >
+                              {token.icon}
+                            </div>
+                            <div className="text-left">
+                              <div className="font-medium dark:text-white">{token.symbol}</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">{token.name}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-
-                {/* To Section */}
-                <div className="mb-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm text-[#666666] dark:text-gray-400">
-                      You receive
-                    </span>
-                    <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
-                      <Phone className="h-4 w-4 text-green-600" />
-                      <span className="font-medium dark:text-white">{selectedProvider.name}</span>
-                    </div>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
+                    <Phone className="h-4 w-4 text-green-600" />
+                    <span className="font-medium dark:text-white">M-Pesa</span>
                   </div>
+                )}
+              </div>
 
-                  <input
-                    type="text"
-                    value={fiatAmount}
-                    readOnly
-                    placeholder="0.00"
-                    className="w-full border-none bg-transparent p-0 text-2xl font-medium outline-none dark:text-white"
-                  />
-                  <div className="text-sm text-[#666666] dark:text-gray-400">
-                    {getCurrencySymbol()} {fiatAmount || "0.00"}
-                  </div>
-                </div>
+              <input
+                type="text"
+                value={activeTab === "onramp" ? cryptoAmount : kesAmount}
+                readOnly
+                placeholder="0.00"
+                className="w-full border-none bg-transparent p-0 text-2xl font-medium outline-none dark:text-white"
+              />
+              <div className="text-sm text-[#666666] dark:text-gray-400">
+                {activeTab === "onramp" ? `~$${cryptoAmount || "0.00"}` : `KES ${kesAmount || "0.00"}`}
+              </div>
+            </div>
 
-                {/* Phone Number */}
-                <div className="mb-4">
-                  <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
-                    Recipient Phone Number
-                  </label>
-                  <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                    <span className="text-gray-500 dark:text-gray-400">{selectedProvider.phonePrefix}</span>
-                    <input
-                      type="tel"
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      placeholder={selectedProvider.country === "Kenya" ? "712345678" : selectedProvider.country === "Uganda" ? "712345678" : "8012345678"}
-                      className="flex-1 border-none bg-transparent outline-none dark:text-white"
-                    />
-                  </div>
-                </div>
+            {/* M-Pesa Phone Number */}
+            <div className="mb-4">
+              <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
+                M-Pesa Phone Number
+              </label>
+              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+                <span className="text-gray-500 dark:text-gray-400">+254</span>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="712345678"
+                  className="flex-1 border-none bg-transparent outline-none dark:text-white"
+                />
+              </div>
+            </div>
 
-                {/* Exchange Rate Info */}
-                <div className="mb-4 rounded-lg bg-gray-50 dark:bg-gray-700/50 p-3">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">Exchange Rate</span>
-                    <span className="font-medium dark:text-white">1 USD = {MOCK_EXCHANGE_RATE} {getCurrencySymbol()}</span>
-                  </div>
-                </div>
+            {/* Exchange Rate Info */}
+            <div className="mb-4 rounded-lg bg-gray-50 dark:bg-gray-700/50 p-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">Exchange Rate</span>
+                <span className="font-medium dark:text-white">1 USD = {MOCK_EXCHANGE_RATE} KES</span>
+              </div>
+            </div>
 
-                {/* Action Button */}
-                <button
-                  onClick={handleWithdrawClick}
-                  disabled={isProcessing}
-                  className="w-full rounded-lg bg-[#6B48FF] py-3 text-white font-medium hover:bg-[#5a3dd9] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isProcessing ? "Processing..." : `Withdraw to ${selectedProvider.name}`}
-                </button>
-              </>
-            )}
+            {/* Action Button */}
+            <button
+              onClick={activeTab === "onramp" ? handleOnramp : handleOfframp}
+              disabled={isProcessing}
+              className="w-full rounded-lg bg-[#6B48FF] py-3 text-white font-medium hover:bg-[#5a3dd9] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isProcessing ? "Processing..." : activeTab === "onramp" ? "Buy with M-Pesa" : "Sell for M-Pesa"}
+            </button>
           </div>
         </div>
       </div>
-
-      {/* Confirmation Modal */}
-      {showConfirmation && (
-        <ConfirmationModal
-          isOpen={showConfirmation}
-          onClose={() => setShowConfirmation(false)}
-          onConfirm={handleConfirmTransaction}
-          transaction={{
-            type: activeTab,
-            amount: activeTab === "pay" ? payAmount : (activeTab === "deposit" ? fiatAmount : cryptoAmount),
-            token: selectedToken.symbol,
-            fiatAmount: activeTab === "pay"
-              ? (parseFloat(payAmount) * MOCK_EXCHANGE_RATE).toFixed(2)
-              : fiatAmount,
-            phone: phoneNumber,
-            recipientPhone: activeTab === "pay" ? recipientPhone : undefined,
-            provider: selectedProvider.name,
-            currency: getCurrencySymbol(),
-            note: activeTab === "pay" ? payNote : undefined,
-          }}
-          isProcessing={isProcessing}
-        />
-      )}
-
-      {/* Receipt Modal */}
-      {showReceipt && lastTransaction && (
-        <Receipt
-          isOpen={showReceipt}
-          onClose={() => setShowReceipt(false)}
-          transaction={lastTransaction}
-        />
-      )}
     </>
   );
 }
 
-function RLUSDIcon() {
+function USDCIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4" fill="white">
-      <circle cx="12" cy="12" r="10" fill="#0085FF" />
-      <text x="12" y="16" fontSize="12" fontWeight="bold" textAnchor="middle" fill="white">$</text>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 2000" className="h-5 w-5">
+      <path d="M1000 2000c554.17 0 1000-445.83 1000-1000S1554.17 0 1000 0 0 445.83 0 1000s445.83 1000 1000 1000z" fill="#2775ca" />
+      <path d="M1275 1158.33c0-145.83-87.5-195.83-262.5-216.66-125-16.67-150-50-150-108.34s41.67-95.83 125-95.83c75 0 116.67 25 137.5 87.5 4.17 12.5 16.67 20.83 29.17 20.83h66.66c16.67 0 29.17-12.5 29.17-29.16v-4.17c-16.67-91.67-91.67-162.5-187.5-170.83v-100c0-16.67-12.5-29.17-33.33-33.34h-62.5c-16.67 0-29.17 12.5-33.34 33.34v95.83c-125 16.67-204.16 100-204.16 204.17 0 137.5 83.33 191.66 258.33 212.5 116.67 20.83 154.17 45.83 154.17 112.5s-58.34 112.5-137.5 112.5c-108.34 0-145.84-45.84-158.34-108.34-4.16-16.66-16.66-25-29.16-25h-70.84c-16.66 0-29.16 12.5-29.16 29.17v4.17c16.66 104.16 83.33 179.16 220.83 200v100c0 16.66 12.5 29.16 33.33 33.33h62.5c16.67 0 29.17-12.5 33.34-33.33v-100c125-20.84 208.33-108.34 208.33-220.84z" fill="#fff" />
+    </svg>
+  );
+}
+
+function USDTIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 2000" className="h-5 w-5">
+      <path d="M1000 0c552.26 0 1000 447.74 1000 1000s-447.76 1000-1000 1000S0 1552.38 0 1000 447.68 0 1000 0" fill="#26a17b" />
+      <path d="M1123.42 866.76V718h340.18V491.34H537.28V718H877.5v148.64C601 879.34 393.1 934.1 393.1 999.7s208 120.36 484.4 133.14v476.5h246V1132.8c276-12.74 483.48-67.46 483.48-133s-207.48-120.26-483.48-133m0 225.64v-.12c-6.94.44-42.6 2.58-122 2.58-63.48 0-108.14-1.8-123.88-2.62v.2C633.34 1081.66 451 1039.12 451 988.22S633.36 894.84 877.62 884v166.1c16 1.1 61.76 3.8 124.92 3.8 75.86 0 114-3.16 121-3.8V884c243.8 10.86 425.72 53.44 425.72 104.16s-182 93.32-425.72 104.18" fill="#fff" />
+    </svg>
+  );
+}
+
+function DAIIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 444.44 444.44" className="h-5 w-5">
+      <path fill="#F5AC37" d="M222.22 0c122.74 0 222.22 99.5 222.22 222.22 0 122.74-99.48 222.22-222.22 222.22-122.72 0-222.22-99.49-222.22-222.22C0 99.5 99.5 0 222.22 0z" />
+      <path fill="#FEFEFD" d="M230.41 237.91h84.44c1.8 0 2.65 0 2.78-2.36.69-8.59.69-17.23 0-25.83 0-1.67-.83-2.36-2.64-2.36h-168.05c-2.08 0-2.64.69-2.64 2.64v24.72c0 3.19 0 3.19 3.33 3.19h82.78z" />
     </svg>
   );
 }

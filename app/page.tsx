@@ -31,7 +31,7 @@ export default function Home() {
                 }`}
             >
               <ArrowLeftRight className="h-4 w-4" />
-              Cash In/Out
+              Swap
             </button>
             <button
               onClick={() => setActiveView("history")}
