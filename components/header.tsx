@@ -89,7 +89,13 @@ export default function Header() {
       className="flex w-full items-center justify-between px-6 py-4 z-10"
       style={{ '--base-fill-color': '#6B48FF' } as React.CSSProperties}
     >
-      <div className="font-bold text-xl text-foreground">SendiiCash</div>
+      <div className="flex items-center">
+        <img
+          src="/assets/logo/WhatsApp_Image_2025-12-10_at_11.04.52-removebg-preview.png"
+          alt="Sendii Cash"
+          className="w-40"
+        />
+      </div>
       <div className="flex items-center gap-4">
         <ThemeToggle />
         <ConnectButton.Custom>

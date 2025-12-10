@@ -50,6 +50,17 @@ export default function WagmiProviderWrapper({ children }: WagmiProviderWrapperP
         <RainbowKitProvider
           modalSize="compact"
           theme={customTheme}
+          appInfo={{
+            appName: 'Lucra App',
+            disclaimer: ({ Text, Link }) => (
+              <Text>
+                By connecting your wallet, you agree to the{' '}
+                <Link href="https://termsofservice.xyz">Terms of Service</Link> and
+                acknowledge you have read and understand the protocol{' '}
+                <Link href="https://disclaimer.xyz">Disclaimer</Link>
+              </Text>
+            ),
+          }}
         >
           {children}
         </RainbowKitProvider>
