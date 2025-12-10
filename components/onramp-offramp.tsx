@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ArrowDown, ChevronDown, Phone, Send } from "lucide-react";
+import { ArrowDown, ChevronDown, Phone, Send, Copy, Check } from "lucide-react";
 import { parsePhoneNumber } from "libphonenumber-js";
 import toast, { Toaster } from "react-hot-toast";
 import Image from "next/image";
@@ -77,6 +77,10 @@ export default function CashInOut() {
   const [payAmount, setPayAmount] = useState("");
   const [payNote, setPayNote] = useState("");
 
+  // Deposit tab specific states
+  const [walletAddress] = useState("rN7n7otQDd6FczFgLdhmKRXKLNpYhPPpLp");
+  const [copiedAddress, setCopiedAddress] = useState(false);
+
   // Modal states
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
@@ -112,16 +116,11 @@ export default function CashInOut() {
     }
   };
 
-  const handleDepositClick = () => {
-    if (!fiatAmount || parseFloat(fiatAmount) <= 0) {
-      toast.error("Please enter a valid amount");
-      return;
-    }
-    if (!validatePhone(phoneNumber, selectedProvider)) {
-      toast.error(`Please enter a valid ${selectedProvider.country} phone number`);
-      return;
-    }
-    setShowConfirmation(true);
+  const handleCopyAddress = () => {
+    navigator.clipboard.writeText(walletAddress);
+    setCopiedAddress(true);
+    toast.success("Wallet address copied!");
+    setTimeout(() => setCopiedAddress(false), 2000);
   };
 
   const handleWithdrawClick = () => {
@@ -215,15 +214,6 @@ export default function CashInOut() {
               Deposit
             </button>
             <button
-              onClick={() => setActiveTab("withdraw")}
-              className={`flex-1 py-4 text-center font-medium transition-colors ${activeTab === "withdraw"
-                ? "text-[#6B48FF] border-b-2 border-[#6B48FF]"
-                : "text-gray-500 dark:text-gray-400"
-                }`}
-            >
-              Withdraw
-            </button>
-            <button
               onClick={() => setActiveTab("pay")}
               className={`flex-1 py-4 text-center font-medium transition-colors ${activeTab === "pay"
                 ? "text-[#6B48FF] border-b-2 border-[#6B48FF]"
@@ -232,59 +222,168 @@ export default function CashInOut() {
             >
               Pay
             </button>
+            <button
+              onClick={() => setActiveTab("withdraw")}
+              className={`flex-1 py-4 text-center font-medium transition-colors ${activeTab === "withdraw"
+                ? "text-[#6B48FF] border-b-2 border-[#6B48FF]"
+                : "text-gray-500 dark:text-gray-400"
+                }`}
+            >
+              Withdraw
+            </button>
           </div>
 
           <div className="p-6">
-            {/* Payment Provider Selector */}
-            <div className="mb-4">
-              <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
-                Payment Provider
-              </label>
-              <div className="relative">
-                <button
-                  onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
-                  className="w-full flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
-                      <Phone className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+            {/* Payment Provider Selector - Only show for Pay and Withdraw tabs */}
+            {activeTab !== "deposit" && (
+              <div className="mb-4">
+                <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
+                  Payment Provider
+                </label>
+                <div className="relative">
+                  <button
+                    onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
+                    className="w-full flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
+                        <Phone className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                      </div>
+                      <div className="text-left">
+                        <div className="font-medium dark:text-white">{selectedProvider.name}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{selectedProvider.country}</div>
+                      </div>
                     </div>
-                    <div className="text-left">
-                      <div className="font-medium dark:text-white">{selectedProvider.name}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{selectedProvider.country}</div>
-                    </div>
-                  </div>
-                  <ChevronDown className="h-4 w-4 dark:text-gray-400" />
-                </button>
+                    <ChevronDown className="h-4 w-4 dark:text-gray-400" />
+                  </button>
 
-                {isProviderDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-2 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 z-10">
-                    {paymentProviders.map((provider) => (
-                      <button
-                        key={provider.id}
-                        onClick={() => {
-                          setSelectedProvider(provider);
-                          setIsProviderDropdownOpen(false);
-                          setPhoneNumber("");
-                          setRecipientPhone("");
-                        }}
-                        className="flex w-full items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700 first:rounded-t-lg last:rounded-b-lg"
-                      >
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
-                          <Phone className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                        </div>
-                        <div className="text-left">
-                          <div className="font-medium dark:text-white">{provider.name}</div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">{provider.country}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                  {isProviderDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-2 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 z-10">
+                      {paymentProviders.map((provider) => (
+                        <button
+                          key={provider.id}
+                          onClick={() => {
+                            setSelectedProvider(provider);
+                            setIsProviderDropdownOpen(false);
+                            setPhoneNumber("");
+                            setRecipientPhone("");
+                          }}
+                          className="flex w-full items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700 first:rounded-t-lg last:rounded-b-lg"
+                        >
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
+                            <Phone className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                          </div>
+                          <div className="text-left">
+                            <div className="font-medium dark:text-white">{provider.name}</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">{provider.country}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
-            {activeTab === "pay" ? (
+            {activeTab === "deposit" ? (
+              // Deposit Tab Content - QR Code and Wallet Address
+              <>
+                <div className="text-center mb-6">
+                  <h3 className="text-lg font-semibold dark:text-white mb-2">Deposit RLUSD</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Transfer RLUSD from another wallet to this address
+                  </p>
+                </div>
+
+                {/* Supported Token */}
+                <div className="mb-6 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-4 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Supported Token</div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="flex h-6 w-6 items-center justify-center rounded-full"
+                          style={{ backgroundColor: selectedToken.color }}
+                        >
+                          {selectedToken.icon}
+                        </div>
+                        <span className="font-semibold dark:text-white">{selectedToken.symbol}</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-400">({selectedToken.name})</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Supported Chain */}
+                <div className="mb-6 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-4 border border-purple-200 dark:border-purple-800">
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Supported Chain</div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-black">
+                      <span className="text-white text-xs font-bold">X</span>
+                    </div>
+                    <span className="font-semibold dark:text-white">XRP Ledger</span>
+                  </div>
+                </div>
+
+                {/* QR Code */}
+                <div className="mb-6 flex justify-center">
+                  <div className="p-4 bg-white dark:bg-gray-700 rounded-2xl shadow-lg">
+                    <div className="w-48 h-48 bg-gray-100 dark:bg-gray-600 rounded-lg flex items-center justify-center">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=192x192&data=${walletAddress}`}
+                        alt="Wallet QR Code"
+                        className="w-full h-full rounded-lg"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Wallet Address */}
+                <div className="mb-6">
+                  <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
+                    Wallet Address
+                  </label>
+                  <div className="relative">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800 px-4 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-sm dark:text-white break-all">
+                          {walletAddress}
+                        </span>
+                        <button
+                          onClick={handleCopyAddress}
+                          className="flex-shrink-0 p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                        >
+                          {copiedAddress ? (
+                            <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                          ) : (
+                            <Copy className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Important Notice */}
+                <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4">
+                  <div className="flex gap-3">
+                    <div className="flex-shrink-0">
+                      <svg className="h-5 w-5 text-yellow-600 dark:text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="text-sm">
+                      <p className="font-semibold text-yellow-800 dark:text-yellow-300 mb-1">Important</p>
+                      <ul className="text-yellow-700 dark:text-yellow-400 space-y-1 list-disc list-inside">
+                        <li>Only send RLUSD to this address</li>
+                        <li>Make sure you're using the XRP Ledger network</li>
+                        <li>Sending other tokens may result in permanent loss</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : activeTab === "pay" ? (
               // Pay Tab Content
               <>
                 <div className="mb-4">
@@ -350,45 +449,34 @@ export default function CashInOut() {
                 </button>
               </>
             ) : (
-              // Deposit/Withdraw Tab Content
+              // Withdraw Tab Content
               <>
                 {/* From Section */}
                 <div className="mb-4">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm text-[#666666] dark:text-gray-400">
-                      {activeTab === "deposit" ? "You pay" : "You send"}
+                      You send
                     </span>
-                    {activeTab === "deposit" ? (
-                      <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
-                        <Phone className="h-4 w-4 text-green-600" />
-                        <span className="font-medium dark:text-white">{selectedProvider.name}</span>
+                    <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
+                      <div
+                        className="flex h-[24px] w-[24px] items-center justify-center rounded-full"
+                        style={{ backgroundColor: selectedToken.color }}
+                      >
+                        {selectedToken.icon}
                       </div>
-                    ) : (
-                      <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
-                        <div
-                          className="flex h-[24px] w-[24px] items-center justify-center rounded-full"
-                          style={{ backgroundColor: selectedToken.color }}
-                        >
-                          {selectedToken.icon}
-                        </div>
-                        <span className="font-medium dark:text-white">{selectedToken.symbol}</span>
-                      </div>
-                    )}
+                      <span className="font-medium dark:text-white">{selectedToken.symbol}</span>
+                    </div>
                   </div>
 
                   <input
                     type="number"
-                    value={activeTab === "deposit" ? fiatAmount : cryptoAmount}
-                    onChange={(e) =>
-                      activeTab === "deposit"
-                        ? handleFiatChange(e.target.value)
-                        : handleCryptoChange(e.target.value)
-                    }
+                    value={cryptoAmount}
+                    onChange={(e) => handleCryptoChange(e.target.value)}
                     placeholder="0.00"
                     className="w-full border-none bg-transparent p-0 text-2xl font-medium outline-none dark:text-white"
                   />
                   <div className="text-sm text-[#666666] dark:text-gray-400">
-                    {activeTab === "deposit" ? `${getCurrencySymbol()} ${fiatAmount || "0.00"}` : `~${cryptoAmount || "0.00"} ${selectedToken.symbol}`}
+                    ~{cryptoAmount || "0.00"} {selectedToken.symbol}
                   </div>
                 </div>
 
@@ -405,40 +493,28 @@ export default function CashInOut() {
                     <span className="text-sm text-[#666666] dark:text-gray-400">
                       You receive
                     </span>
-                    {activeTab === "deposit" ? (
-                      <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
-                        <div
-                          className="flex h-[24px] w-[24px] items-center justify-center rounded-full"
-                          style={{ backgroundColor: selectedToken.color }}
-                        >
-                          {selectedToken.icon}
-                        </div>
-                        <span className="font-medium dark:text-white">{selectedToken.symbol}</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
-                        <Phone className="h-4 w-4 text-green-600" />
-                        <span className="font-medium dark:text-white">{selectedProvider.name}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 dark:border-gray-700 dark:bg-gray-800">
+                      <Phone className="h-4 w-4 text-green-600" />
+                      <span className="font-medium dark:text-white">{selectedProvider.name}</span>
+                    </div>
                   </div>
 
                   <input
                     type="text"
-                    value={activeTab === "deposit" ? cryptoAmount : fiatAmount}
+                    value={fiatAmount}
                     readOnly
                     placeholder="0.00"
                     className="w-full border-none bg-transparent p-0 text-2xl font-medium outline-none dark:text-white"
                   />
                   <div className="text-sm text-[#666666] dark:text-gray-400">
-                    {activeTab === "deposit" ? `~${cryptoAmount || "0.00"} ${selectedToken.symbol}` : `${getCurrencySymbol()} ${fiatAmount || "0.00"}`}
+                    {getCurrencySymbol()} {fiatAmount || "0.00"}
                   </div>
                 </div>
 
                 {/* Phone Number */}
                 <div className="mb-4">
                   <label className="block text-sm text-[#666666] dark:text-gray-400 mb-2">
-                    {activeTab === "deposit" ? "Your" : "Recipient"} Phone Number
+                    Recipient Phone Number
                   </label>
                   <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
                     <span className="text-gray-500 dark:text-gray-400">{selectedProvider.phonePrefix}</span>
@@ -462,11 +538,11 @@ export default function CashInOut() {
 
                 {/* Action Button */}
                 <button
-                  onClick={activeTab === "deposit" ? handleDepositClick : handleWithdrawClick}
+                  onClick={handleWithdrawClick}
                   disabled={isProcessing}
                   className="w-full rounded-lg bg-[#6B48FF] py-3 text-white font-medium hover:bg-[#5a3dd9] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isProcessing ? "Processing..." : activeTab === "deposit" ? `Deposit with ${selectedProvider.name}` : `Withdraw to ${selectedProvider.name}`}
+                  {isProcessing ? "Processing..." : `Withdraw to ${selectedProvider.name}`}
                 </button>
               </>
             )}
